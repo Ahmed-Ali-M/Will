@@ -8,6 +8,7 @@ interface InteractionState {
     currentX: number;
     currentY: number;
     targetIds?: string[]; 
+    primaryId?: string; // The specific node being grabbed in a selection
     initialPositions?: Map<string, { x: number, y: number }>;
     // Group children optimization
     draggedChildrenIds?: string[];
@@ -105,34 +106,105 @@ export const useCanvasInteraction = ({
     }, [viewport]);
 
     // --- Snap Logic ---
-    const calculateSnap = (id: string, proposedX: number, proposedY: number, width: number, height: number) => {
-        const SNAP_THRESHOLD = 8;
-        let newX = proposedX;
-        let newY = proposedY;
-        const newGuides: GuideLine[] = [];
+    const calculateSnap = (id: string, proposedX: number, proposedY: number, width: number, height: number, currentScale: number) => {
+        // Threshold in screen pixels (e.g., 12px), converted to canvas units
+        const SNAP_THRESHOLD = 12 / currentScale;
+        const GRID_SIZE = 10;
+        
+        // Candidates for dragging object
+        const my = {
+            left: proposedX,
+            right: proposedX + width,
+            centerX: proposedX + width / 2,
+            top: proposedY,
+            bottom: proposedY + height,
+            centerY: proposedY + height / 2
+        };
 
-        // Check against other tasks (read from ref to avoid re-render loop)
+        let bestDx = SNAP_THRESHOLD + 1;
+        let bestX = null;
+        let guideX = null;
+
+        let bestDy = SNAP_THRESHOLD + 1;
+        let bestY = null;
+        let guideY = null;
+
+        // Iterate all other tasks to find snap points
         tasksRef.current.forEach(other => {
             if (other.id === id) return;
+            // Ignore if 'other' is also being dragged (in multi-selection)
+            if (interactionRef.current.targetIds?.includes(other.id)) return;
+
             const otherW = other.width || 300;
-            const otherH = other.height || 100;
-            const otherCx = other.x + otherW / 2;
-            const otherCy = other.y + otherH / 2;
-
-            const myCx = proposedX + width / 2;
-            const myCy = proposedY + height / 2;
-
-            // Horizontal Alignments (Vertical Lines)
-            if (Math.abs(proposedX - other.x) < SNAP_THRESHOLD) { newX = other.x; newGuides.push({ type: 'vertical', pos: other.x }); }
-            if (Math.abs(myCx - otherCx) < SNAP_THRESHOLD) { newX = otherCx - width / 2; newGuides.push({ type: 'vertical', pos: otherCx }); }
+            const otherH = other.height || 100; // Best effort height
             
-            // Vertical Alignments (Horizontal Lines)
-            if (Math.abs(proposedY - other.y) < SNAP_THRESHOLD) { newY = other.y; newGuides.push({ type: 'horizontal', pos: other.y }); }
-            if (Math.abs(myCy - otherCy) < SNAP_THRESHOLD) { newY = otherCy - height / 2; newGuides.push({ type: 'horizontal', pos: otherCy }); }
+            const target = {
+                left: other.x,
+                right: other.x + otherW,
+                centerX: other.x + otherW / 2,
+                top: other.y,
+                bottom: other.y + otherH,
+                centerY: other.y + otherH / 2
+            };
+
+            // Check X snaps
+            const xSnaps = [
+                { val: target.left, type: 'left', ref: 'left', dist: Math.abs(my.left - target.left) },
+                { val: target.left - width, type: 'right', ref: 'left', dist: Math.abs(my.right - target.left) }, 
+                { val: target.right, type: 'left', ref: 'right', dist: Math.abs(my.left - target.right) },
+                { val: target.right - width, type: 'right', ref: 'right', dist: Math.abs(my.right - target.right) },
+                { val: target.centerX - width/2, type: 'center', ref: 'center', dist: Math.abs(my.centerX - target.centerX) }
+            ];
+
+            for (const snap of xSnaps) {
+                if (snap.dist < bestDx) {
+                    bestDx = snap.dist;
+                    bestX = snap.val;
+                    guideX = snap.ref === 'left' ? target.left : snap.ref === 'right' ? target.right : target.centerX;
+                }
+            }
+
+            // Check Y snaps
+            const ySnaps = [
+                { val: target.top, type: 'top', ref: 'top', dist: Math.abs(my.top - target.top) },
+                { val: target.top - height, type: 'bottom', ref: 'top', dist: Math.abs(my.bottom - target.top) },
+                { val: target.bottom, type: 'top', ref: 'bottom', dist: Math.abs(my.top - target.bottom) },
+                { val: target.bottom - height, type: 'bottom', ref: 'bottom', dist: Math.abs(my.bottom - target.bottom) },
+                { val: target.centerY - height/2, type: 'center', ref: 'center', dist: Math.abs(my.centerY - target.centerY) }
+            ];
+
+            for (const snap of ySnaps) {
+                if (snap.dist < bestDy) {
+                    bestDy = snap.dist;
+                    bestY = snap.val;
+                    guideY = snap.ref === 'top' ? target.top : snap.ref === 'bottom' ? target.bottom : target.centerY;
+                }
+            }
         });
 
+        const newGuides: GuideLine[] = [];
+        let finalX = proposedX;
+        let finalY = proposedY;
+
+        // Apply Snap or Grid Fallback
+        if (bestX !== null && guideX !== null) {
+            finalX = bestX;
+            newGuides.push({ type: 'vertical', pos: guideX });
+        } else {
+            // Soft Grid Snap
+            finalX = Math.round(proposedX / GRID_SIZE) * GRID_SIZE;
+        }
+        
+        if (bestY !== null && guideY !== null) {
+            finalY = bestY;
+            newGuides.push({ type: 'horizontal', pos: guideY });
+        } else {
+            // Soft Grid Snap
+            finalY = Math.round(proposedY / GRID_SIZE) * GRID_SIZE;
+        }
+
         setGuides(newGuides);
-        return { x: newX, y: newY };
+        return { x: finalX, y: finalY };
     };
 
 
@@ -231,6 +303,7 @@ export const useCanvasInteraction = ({
             startX: e.clientX, startY: e.clientY,
             currentX: e.clientX, currentY: e.clientY,
             targetIds,
+            primaryId: id, // Track which node was actually clicked for snapping
             initialPositions: initialPos,
             draggedChildrenIds: childrenIds,
             initialChildrenPositions: initialChildrenPos
@@ -296,21 +369,36 @@ export const useCanvasInteraction = ({
 
         if (currentInteraction.type === 'dragging_node' && currentInteraction.initialPositions) {
             const updates: any[] = [];
-            const primaryId = currentInteraction.targetIds?.[0];
+            const primaryId = currentInteraction.primaryId || currentInteraction.targetIds?.[0];
+            
+            // Raw movement delta in canvas units
+            let effectiveDeltaX = deltaX / scale;
+            let effectiveDeltaY = deltaY / scale;
 
-            for (const [id, startPos] of currentInteraction.initialPositions.entries()) {
-                let px = startPos.x + (deltaX / scale);
-                let py = startPos.y + (deltaY / scale);
+            // Apply Snapping based on the primary grabbed node
+            if (primaryId && currentInteraction.initialPositions.has(primaryId)) {
+                const startPos = currentInteraction.initialPositions.get(primaryId)!;
+                const proposedX = startPos.x + effectiveDeltaX;
+                const proposedY = startPos.y + effectiveDeltaY;
                 
-                if (currentInteraction.initialPositions.size === 1 && id === primaryId) {
-                    const snapped = calculateSnap(id, px, py, 300, 100); 
-                    px = snapped.x;
-                    py = snapped.y;
-                } else if (currentInteraction.initialPositions.size > 1) {
-                    setGuides([]); 
+                const task = tasksRef.current.find(t => t.id === primaryId);
+                if (task) {
+                    const snapped = calculateSnap(primaryId, proposedX, proposedY, task.width||300, task.height||100, scale);
+                    // Adjust the delta so the primary node lands exactly on the snap line
+                    effectiveDeltaX = snapped.x - startPos.x;
+                    effectiveDeltaY = snapped.y - startPos.y;
                 }
+            } else {
+                setGuides([]);
+            }
 
-                updates.push({ id, x: px, y: py });
+            // Apply calculated delta to ALL dragged nodes
+            for (const [id, startPos] of currentInteraction.initialPositions.entries()) {
+                updates.push({ 
+                    id, 
+                    x: startPos.x + effectiveDeltaX, 
+                    y: startPos.y + effectiveDeltaY 
+                });
             }
             onTasksUpdate(updates);
         }

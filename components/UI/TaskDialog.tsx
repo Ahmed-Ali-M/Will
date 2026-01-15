@@ -86,7 +86,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ isOpen, onClose, onSave, initia
         if (initialData.dates && initialData.dates.length > 0) {
             setDates(initialData.dates);
         } else if (initialData.dueDate) {
-             setDates([{ id: generateId(), date: initialData.dueDate, reminderMinutes: initialData.reminderMinutesBefore || 15 }]);
+             setDates([{ id: generateId(), date: initialData.dueDate, reminderMinutes: initialData.reminderMinutesBefore ?? 0 }]);
         } else {
              setDates([]);
         }
@@ -133,7 +133,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ isOpen, onClose, onSave, initia
         }
         
         // Initialize with helpful blocks
-        setDates([{ id: generateId(), date: defaultDate.toISOString(), reminderMinutes: 15 }]);
+        setDates([{ id: generateId(), date: defaultDate.toISOString(), reminderMinutes: 0 }]);
         setBlocks([
             { id: generateId(), type: 'description' },
             { id: generateId(), type: 'date' }
@@ -156,7 +156,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ isOpen, onClose, onSave, initia
           const now = new Date();
           now.setHours(now.getHours() + 1);
           now.setMinutes(0);
-          setDates(prev => [...prev, { id: generateId(), date: now.toISOString(), reminderMinutes: 15 }]);
+          setDates(prev => [...prev, { id: generateId(), date: now.toISOString(), reminderMinutes: 0 }]);
           if (!exists) setBlocks(prev => [...prev, { id: generateId(), type: 'date' }]);
       }
       else if (type === 'checklist') {
@@ -208,7 +208,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ isOpen, onClose, onSave, initia
     }
     
     let finalDueDate = '';
-    let finalReminder = 15;
+    let finalReminder = 0;
     
     // Validate dates before saving
     const validDates = dates.filter(d => !isNaN(new Date(d.date).getTime()));

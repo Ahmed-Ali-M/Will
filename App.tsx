@@ -177,6 +177,77 @@ const App: React.FC = () => {
     if ('Notification' in window && Notification.permission === 'granted') setHasRequestedPermission(true);
   }, []);
   
+  // --- Reminder Check Interval ---
+  useEffect(() => {
+      const checkReminders = () => {
+          const now = Date.now();
+          const newNotifications: AppNotification[] = [];
+          
+          tasks.forEach(task => {
+              if (task.isCompleted) return;
+              
+              const allDates = [...(task.dates || [])];
+              // Include primary due date if not in dates array (legacy or simple)
+              if (task.dueDate && !allDates.some(d => d.date === task.dueDate)) {
+                  allDates.push({ id: 'primary', date: task.dueDate, reminderMinutes: task.reminderMinutesBefore });
+              }
+
+              allDates.forEach((dateConfig, idx) => {
+                  if (!dateConfig.date) return;
+                  const dateInfo = new Date(dateConfig.date);
+                  if (isNaN(dateInfo.getTime())) return;
+
+                  // Trigger Time = Date - Reminder Minutes
+                  const triggerTime = dateInfo.getTime() - ((dateConfig.reminderMinutes || 0) * 60 * 1000);
+                  const key = `${task.id}-${dateConfig.id || idx}-${triggerTime}`;
+
+                  // Check if within 1 minute window (to avoid re-triggering constantly or missing if slight lag)
+                  // and make sure we haven't fired it yet.
+                  // We accept checking every 10s, so window can be lenient (e.g., last 60s)
+                  if (now >= triggerTime && now < triggerTime + 60000) {
+                      if (!firedRemindersRef.current.has(key)) {
+                          firedRemindersRef.current.add(key);
+                          
+                          // Create Notification
+                          const notification: AppNotification = {
+                              id: generateId(),
+                              taskId: task.id,
+                              title: "Reminder",
+                              message: `It's time for: ${task.title}`,
+                              timestamp: new Date().toISOString(),
+                              isRead: false,
+                              type: 'reminder',
+                              actions: [
+                                  { label: 'Complete', actionId: 'complete', primary: true },
+                                  { label: 'Snooze 5m', actionId: 'snooze' }
+                              ]
+                          };
+                          newNotifications.push(notification);
+                          
+                          // System Notification
+                          if (hasRequestedPermission && 'Notification' in window && Notification.permission === 'granted') {
+                              new Notification("Will Reminder", {
+                                  body: task.title,
+                                  icon: '/icon.png' // Placeholder
+                              });
+                          }
+                      }
+                  }
+              });
+          });
+
+          if (newNotifications.length > 0) {
+              setNotifications(prev => [...newNotifications, ...prev]);
+              newNotifications.forEach(n => storage.saveNotification(n));
+              localStorage.setItem(STORAGE_KEY_FIRED, JSON.stringify(Array.from(firedRemindersRef.current)));
+              audio.play('alarm');
+          }
+      };
+
+      const intervalId = setInterval(checkReminders, 10000); // Check every 10s
+      return () => clearInterval(intervalId);
+  }, [tasks, hasRequestedPermission]);
+
   useEffect(() => {
       const handleMouseMoveGlobal = (e: MouseEvent) => {
           document.documentElement.style.setProperty('--cursor-x', `${e.clientX}px`);
@@ -303,13 +374,12 @@ const App: React.FC = () => {
           const tW = 300;
           const tH = t.height || 400;
           if (t.x > maxX || t.x + tW < minX || t.y > maxY || t.y + tH < minY) return false;
-          if (!t.isCompleted) return true;
+          
+          // HIDE COMPLETED TASKS (Fix Ghosting)
+          if (t.isCompleted) return false;
+
           if (t.recurrence) return true;
-          const hasConnections = t.parentId || tasks.some(x => x.parentId === t.id);
-          if (hasConnections) {
-             return true; 
-          }
-          return false;
+          return true;
       });
   }, [tasks, flyingItems, viewport, windowSize]);
 
@@ -471,7 +541,7 @@ const App: React.FC = () => {
           id: generateId(),
           title: '',
           dueDate: isoDate,
-          dates: [{ id: generateId(), date: isoDate, reminderMinutes: 15 }]
+          dates: [{ id: generateId(), date: isoDate, reminderMinutes: 0 }]
       });
       setIsDialogOpen(true);
   }, [screenToCanvas]);
@@ -527,9 +597,18 @@ const App: React.FC = () => {
   const handleToastAction = (notification: AppNotification, actionId: string) => {
       setActiveToasts(prev => prev.filter(t => t.id !== notification.id));
       if (actionId === 'undo') { undo(); return; }
+      
       const task = tasks.find(t => t.id === notification.taskId);
-      if (!task) return;
-      if (actionId === 'complete') { handleSaveTaskFull({ id: task.id, isCompleted: true }); audio.play('success'); }
+      if (actionId === 'complete' && task) { 
+          handleSaveTaskFull({ id: task.id, isCompleted: true }); 
+          audio.play('success'); 
+      }
+      if (actionId === 'snooze' && task) {
+          // Add 5 min to reminder logic only? For simplicity, we just won't re-fire immediately.
+          // Real snooze needs modifying the task or a snooze store.
+          // Just dismiss for now.
+      }
+      
       storage.saveNotification({ ...notification, isRead: true });
   };
   
@@ -941,7 +1020,7 @@ const App: React.FC = () => {
            {guides.map((g, i) => (
                <div 
                  key={i}
-                 className={`absolute bg-red-500 z-50 pointer-events-none ${g.type === 'vertical' ? 'w-px h-screen -top-1/2' : 'h-px w-screen -left-1/2'}`}
+                 className={`absolute z-50 pointer-events-none border-dashed border-cyan-500/80 shadow-[0_0_2px_rgba(6,182,212,0.8)] ${g.type === 'vertical' ? 'w-px h-screen -top-1/2 border-l' : 'h-px w-screen -left-1/2 border-t'}`}
                  style={{
                      left: g.type === 'vertical' ? g.pos : undefined,
                      top: g.type === 'horizontal' ? g.pos : undefined

@@ -84,8 +84,15 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ tasks, viewport, wind
       </defs>
       {tasks.map(task => {
         if (!task.parentId) return null;
+        
+        // HIDE CONNECTION IF CHILD IS DONE (Matching board visibility logic)
+        if (task.isCompleted) return null;
+
         const parent = taskMap.get(task.parentId);
         if (!parent) return null;
+        
+        // HIDE CONNECTION IF PARENT IS DONE
+        if (parent.isCompleted) return null;
 
         // Use smart anchors
         const { start, end } = getSmartAnchors(
