@@ -1,0 +1,5 @@
+{
+  "name": "Will",
+  "description": "A sleek, node-based task manager on an infinite canvas. Connect tasks in timelines, manage schedules, and organize your life with a spatial interface.",
+  "requestFramePermissions": []
+}
