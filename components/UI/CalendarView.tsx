@@ -128,6 +128,79 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isOpen, onClose, tasks, ori
     const allDayTasks = dayTasks.filter(t => !t.dueDate.includes('T') || (new Date(t.dueDate).getHours() === 0 && new Date(t.dueDate).getMinutes() === 0 && (!t.durationMinutes || t.durationMinutes >= 1440)));
     const timedTasks = dayTasks.filter(t => !allDayTasks.includes(t));
 
+    // Advanced Layout Algorithm for Timed Tasks
+    const getLayoutedTimedTasks = () => {
+        // 1. Prepare events with numeric start/end (minutes from midnight)
+        const events = timedTasks.map(t => {
+            const d = new Date(t.dueDate);
+            const start = d.getHours() * 60 + d.getMinutes();
+            const duration = t.durationMinutes || 60;
+            return { ...t, start, end: start + duration };
+        }).sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+
+        // 2. Group into overlapping clusters
+        const clusters: typeof events[] = [];
+        if (events.length > 0) {
+            let currentCluster = [events[0]];
+            let clusterEnd = events[0].end;
+            
+            for(let i=1; i<events.length; i++) {
+                if (events[i].start < clusterEnd) {
+                    currentCluster.push(events[i]);
+                    clusterEnd = Math.max(clusterEnd, events[i].end);
+                } else {
+                    clusters.push(currentCluster);
+                    currentCluster = [events[i]];
+                    clusterEnd = events[i].end;
+                }
+            }
+            clusters.push(currentCluster);
+        }
+
+        // 3. Layout each cluster into columns
+        const result: any[] = [];
+        
+        clusters.forEach(cluster => {
+            const columns: typeof events[] = [];
+            cluster.forEach(ev => {
+                let placed = false;
+                for(let i=0; i<columns.length; i++) {
+                    const lastInCol = columns[i][columns[i].length - 1];
+                    // Add small buffer to avoid visual overlap on exact edges
+                    if (lastInCol.end <= ev.start) {
+                        columns[i].push(ev);
+                        (ev as any).colIndex = i;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) {
+                    columns.push([ev]);
+                    (ev as any).colIndex = columns.length - 1;
+                }
+            });
+
+            const widthPercent = 100 / columns.length;
+            
+            cluster.forEach(ev => {
+                const colIdx = (ev as any).colIndex;
+                result.push({
+                    task: ev,
+                    style: {
+                        top: ev.start,
+                        height: Math.max(30, ev.end - ev.start),
+                        left: `${colIdx * widthPercent}%`,
+                        width: `${widthPercent}%`
+                    }
+                });
+            });
+        });
+
+        return result;
+    };
+
+    const layoutedTasks = getLayoutedTimedTasks();
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-auto overflow-hidden">
             <style>{`
@@ -251,20 +324,20 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isOpen, onClose, tasks, ori
                                                 handleDayClick(dayObj.date);
                                             }}
                                             className={`
-                                                relative p-2 flex flex-col gap-1 group/cell transition-colors cursor-pointer
+                                                relative p-1.5 flex flex-col gap-1 group/cell transition-colors cursor-pointer
                                                 ${!isRightCol ? 'border-r' : ''} ${!isBottomRow ? 'border-b' : ''}
                                                 border-slate-200/60 dark:border-slate-800/60
                                                 ${dayObj.isCurrentMonth ? 'bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/50' : 'bg-slate-50/80 dark:bg-slate-900/30 text-slate-300 dark:text-slate-700'}
                                             `}
                                         >
-                                            <div className="flex justify-between items-start mb-1 pointer-events-none">
-                                                <span className={`text-xs font-semibold w-7 h-7 flex items-center justify-center rounded-full ${isToday ? 'bg-blue-600 text-white shadow-md' : ''}`}>
+                                            <div className="flex justify-between items-start mb-0.5 pointer-events-none">
+                                                <span className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-blue-600 text-white shadow-md' : ''}`}>
                                                     {dayObj.date.getDate()}
                                                 </span>
                                             </div>
                                             
                                             {/* Scrollable Tasks Container */}
-                                            <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none hover:scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 space-y-1 pb-6">
+                                            <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none hover:scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 space-y-0.5 pb-6">
                                                 {tasksForDay.map(task => {
                                                     const isDone = task.isCompleted;
                                                     return (
@@ -272,11 +345,11 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isOpen, onClose, tasks, ori
                                                             key={task.id}
                                                             onClick={(e) => { e.stopPropagation(); onEditTask(task); }}
                                                             className={`
-                                                                w-full text-left px-1.5 py-1 rounded-[6px] text-[10px] font-medium flex items-center gap-1.5 transition-all mb-0.5
-                                                                ${isDone ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 line-through opacity-60' : 'bg-blue-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200 border border-blue-100/50 dark:border-slate-700'}
+                                                                w-full text-left px-1.5 py-0.5 rounded-[4px] text-[10px] font-medium flex items-center gap-1.5 transition-all truncate min-h-[20px]
+                                                                ${isDone ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 line-through opacity-60' : 'bg-blue-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200 hover:bg-blue-100 dark:hover:bg-slate-700 border border-blue-100/50 dark:border-slate-700'}
                                                             `}
                                                         >
-                                                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isDone ? 'bg-emerald-400' : 'bg-blue-400'}`} />
+                                                            <div className={`w-1 h-1 rounded-full flex-shrink-0 ${isDone ? 'bg-emerald-400' : 'bg-blue-400'}`} />
                                                             <span className="truncate">{task.title}</span>
                                                         </div>
                                                     );
@@ -290,9 +363,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isOpen, onClose, tasks, ori
                                                     d.setHours(9, 0, 0, 0); // Default to 9am for Month View adds
                                                     onAddTask(d); 
                                                 }}
-                                                className="absolute bottom-2 right-2 p-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-blue-600 hover:scale-110 shadow-sm opacity-0 group-hover/cell:opacity-100 transition-all z-10"
+                                                className="absolute bottom-1 right-1 p-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-blue-600 hover:scale-110 shadow-sm opacity-0 group-hover/cell:opacity-100 transition-all z-10"
                                             >
-                                                <Plus size={14} strokeWidth={3} />
+                                                <Plus size={12} strokeWidth={3} />
                                             </button>
                                         </div>
                                     );
@@ -304,7 +377,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isOpen, onClose, tasks, ori
                         <div className="h-full flex flex-col">
                             {/* All Day Section */}
                             <div className="shrink-0 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 flex">
-                                <div className="w-16 p-4 text-xs font-bold text-slate-400 border-r border-slate-200 dark:border-slate-700">All Day</div>
+                                <div className="w-16 p-3 text-[10px] font-bold text-slate-400 border-r border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                                    All Day
+                                </div>
                                 <div className="flex-1 p-2 flex flex-wrap gap-2">
                                     {allDayTasks.map(task => (
                                         <button
@@ -333,29 +408,36 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isOpen, onClose, tasks, ori
                                 </div>
                             </div>
 
-                            {/* Scrollable Timeline */}
-                            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 relative" ref={scrollContainerRef}>
-                                <div className="relative min-h-[1440px]"> {/* 60px per hour */}
-                                    {/* Grid Lines */}
-                                    {Array.from({ length: 24 }).map((_, hour) => (
-                                        <div key={hour} className="absolute w-full flex h-[60px]" style={{ top: hour * 60 }}>
-                                            <div className="w-16 shrink-0 border-r border-slate-100 dark:border-slate-800 pr-3 text-right">
-                                                <span className="text-xs text-slate-400 -mt-2.5 block">
+                            {/* Scrollable Timeline Container */}
+                            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 relative flex" ref={scrollContainerRef}>
+                                {/* Time Labels Column */}
+                                <div className="w-16 flex-shrink-0 bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800 z-10">
+                                    <div className="relative min-h-[1440px]">
+                                        {Array.from({ length: 24 }).map((_, hour) => (
+                                            <div key={hour} className="absolute w-full h-[60px] text-right pr-3" style={{ top: hour * 60 }}>
+                                                <span className="text-xs text-slate-400 -mt-2.5 block font-medium">
                                                     {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
                                                 </span>
                                             </div>
-                                            <div className="flex-1 border-b border-slate-100 dark:border-slate-800/50 relative">
-                                                {/* Click area to add task at this time */}
-                                                <div 
-                                                    className="absolute inset-0 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer group"
-                                                    onClick={() => {
-                                                        const d = new Date(currentDate);
-                                                        d.setHours(hour, 0, 0, 0);
-                                                        onAddTask(d);
-                                                    }}
-                                                >
-                                                    <span className="hidden group-hover:block ml-2 mt-1 text-[10px] text-blue-400">+ New Task</span>
-                                                </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Content Grid */}
+                                <div className="flex-1 relative min-h-[1440px]">
+                                    {/* Grid Lines */}
+                                    {Array.from({ length: 24 }).map((_, hour) => (
+                                        <div key={hour} className="absolute w-full h-[60px] border-b border-slate-100 dark:border-slate-800/50" style={{ top: hour * 60 }}>
+                                            {/* Click area to add task at this time */}
+                                            <div 
+                                                className="absolute inset-0 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer group"
+                                                onClick={() => {
+                                                    const d = new Date(currentDate);
+                                                    d.setHours(hour, 0, 0, 0);
+                                                    onAddTask(d);
+                                                }}
+                                            >
+                                                <span className="hidden group-hover:block ml-2 mt-1 text-[10px] text-blue-400 font-medium">+ New Task</span>
                                             </div>
                                         </div>
                                     ))}
@@ -363,44 +445,43 @@ const CalendarView: React.FC<CalendarViewProps> = ({ isOpen, onClose, tasks, ori
                                     {/* Current Time Line */}
                                     {isSameDay(currentDate, today) && (
                                         <div 
-                                            className="absolute left-16 right-0 border-t-2 border-red-400 z-10 pointer-events-none flex items-center"
+                                            className="absolute left-0 right-0 border-t-2 border-red-400 z-20 pointer-events-none flex items-center"
                                             style={{ top: (today.getHours() * 60) + today.getMinutes() }}
                                         >
                                             <div className="w-2 h-2 bg-red-400 rounded-full -ml-1" />
                                         </div>
                                     )}
 
-                                    {/* Task Blocks */}
-                                    {timedTasks.map(task => {
-                                        const d = new Date(task.dueDate);
-                                        const startMin = d.getHours() * 60 + d.getMinutes();
-                                        const duration = task.durationMinutes || 60; // Default 1h for visual
-                                        
+                                    {/* Task Blocks - With Layout Calculation */}
+                                    {layoutedTasks.map(({ task, style }: any) => {
                                         return (
                                             <div
                                                 key={task.id}
                                                 onClick={() => onEditTask(task)}
-                                                className={`absolute left-16 right-4 rounded-lg p-2 border text-xs cursor-pointer hover:shadow-lg transition-all z-20 flex flex-col justify-start
+                                                className={`absolute rounded-lg p-2 border text-xs cursor-pointer hover:shadow-lg transition-all z-10 flex flex-col justify-start overflow-hidden group
                                                     ${task.isCompleted 
                                                         ? 'bg-emerald-50/90 border-emerald-200 text-emerald-800 dark:bg-emerald-900/80 dark:border-emerald-700 dark:text-emerald-100 opacity-80' 
-                                                        : 'bg-blue-50/90 border-blue-200 text-blue-800 dark:bg-blue-900/80 dark:border-blue-700 dark:text-blue-100 shadow-sm'
+                                                        : 'bg-blue-50/90 border-blue-200 text-blue-800 dark:bg-blue-900/80 dark:border-blue-700 dark:text-blue-100 shadow-sm hover:z-30 hover:ring-2 hover:ring-blue-400'
                                                     }
                                                 `}
                                                 style={{
-                                                    top: startMin,
-                                                    height: Math.max(30, duration), // Min height 30px
-                                                    left: '4.5rem', // Offset for sidebar
-                                                    right: '1rem',
-                                                    // Simple conflict handling: if overlaps, we might need offset. 
-                                                    // For now, full width.
+                                                    ...style,
+                                                    left: `calc(${style.left} + 2px)`, // Small visual gap
+                                                    width: `calc(${style.width} - 4px)`, // Small visual gap
                                                 }}
                                             >
-                                                <div className="flex items-center gap-1 font-bold">
+                                                <div className="flex items-center gap-1 font-bold leading-tight">
                                                     {task.isCompleted && <CheckCircle2 size={12} />}
-                                                    {task.title}
+                                                    <span className="truncate">{task.title}</span>
                                                 </div>
-                                                <div className="opacity-80 mt-0.5 text-[10px]">
+                                                <div className="opacity-80 mt-0.5 text-[10px] font-medium truncate">
                                                     {getTaskTime(task)} {task.durationMinutes ? `- ${task.durationMinutes}m` : ''}
+                                                </div>
+                                                {/* Edit Hint on hover */}
+                                                <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <div className="bg-black/10 p-0.5 rounded text-current">
+                                                        <Clock size={10} />
+                                                    </div>
                                                 </div>
                                             </div>
                                         );
