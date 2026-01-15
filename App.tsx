@@ -6,6 +6,7 @@ import ConnectionLayer from './components/Canvas/ConnectionLayer';
 import TaskDialog from './components/UI/TaskDialog';
 import LinkTaskDialog from './components/UI/LinkTaskDialog';
 import Sidebar from './components/UI/Sidebar';
+import CalendarView from './components/UI/CalendarView';
 import SearchBar from './components/UI/SearchBar';
 import NotificationCenter from './components/UI/NotificationCenter';
 import ToastSystem from './components/UI/ToastSystem';
@@ -69,6 +70,7 @@ const App: React.FC = () => {
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [sidebarView, setSidebarView] = useState<SidebarView>(SidebarView.INBOX);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   
@@ -104,7 +106,11 @@ const App: React.FC = () => {
   // New State: Context Menu
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ isOpen: false, x: 0, y: 0, type: 'CANVAS' });
 
-  const isInteractionDisabled = isDialogOpen || isLinkDialogOpen || isSidebarOpen || isNotificationCenterOpen || isSettingsOpen || isSearchOpen;
+  // Refs for Anchoring Animations
+  const sidebarBtnRef = useRef<HTMLButtonElement>(null);
+  const calendarBtnRef = useRef<HTMLButtonElement>(null);
+
+  const isInteractionDisabled = isDialogOpen || isLinkDialogOpen || isSidebarOpen || isCalendarOpen || isNotificationCenterOpen || isSettingsOpen || isSearchOpen;
 
   // --- Effects ---
 
@@ -309,9 +315,15 @@ const App: React.FC = () => {
 
   // --- Fly Animation Logic ---
   const triggerFlyAnimation = useCallback((task: Task) => {
-      // Calculate fly destination (Dock Center)
-      const targetX = window.innerWidth / 2;
-      const targetY = window.innerHeight - 40; 
+      // Calculate fly destination (Dock Button or Center)
+      let targetX = window.innerWidth / 2;
+      let targetY = window.innerHeight - 40; 
+
+      if (sidebarBtnRef.current) {
+          const rect = sidebarBtnRef.current.getBoundingClientRect();
+          targetX = rect.left + rect.width / 2;
+          targetY = rect.top + rect.height / 2;
+      }
 
       const item: FlyingItem = {
           id: task.id,
@@ -324,7 +336,9 @@ const App: React.FC = () => {
           delay: 0
       };
       
-      setFlyingItems(prev => [...prev, item]);
+      const enhancedItem = { ...item, targetX, targetY };
+
+      setFlyingItems(prev => [...prev, enhancedItem as any]);
       setTimeout(() => {
           setFlyingItems(prev => prev.filter(i => i.id !== task.id));
       }, 800);
@@ -482,6 +496,7 @@ const App: React.FC = () => {
               setContextMenu(prev => ({ ...prev, isOpen: false }));
               setQuickCapture(null);
               setIsSearchOpen(false);
+              setIsCalendarOpen(false);
           }
           if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setIsSearchOpen(true); }
       };
@@ -577,6 +592,22 @@ const App: React.FC = () => {
               setEditingTask(undefined);
               setIsDialogOpen(true);
               break;
+          case 'new_group':
+              const gCoords = screenToCanvas(contextMenu.x, contextMenu.y);
+              const newGroup: Group = {
+                  id: generateId(),
+                  title: 'New Group',
+                  x: gCoords.x,
+                  y: gCoords.y,
+                  width: 400,
+                  height: 300,
+                  color: '#94a3b8',
+                  locked: false
+              };
+              setGroups(prev => [...prev, newGroup]);
+              storage.saveGroup(newGroup);
+              pushHistory();
+              break;
           case 'layout':
               pushHistory();
               const updates = performAutoLayout(tasks, selectedTaskIds);
@@ -625,6 +656,14 @@ const App: React.FC = () => {
     }
   };
 
+  const getElementOrigin = (ref: React.RefObject<HTMLElement>) => {
+      if (ref.current) {
+          const rect = ref.current.getBoundingClientRect();
+          return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }
+      return null;
+  };
+
   if (isLoading) return <div className="w-full h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="animate-spin"/></div>;
 
   return (
@@ -656,6 +695,7 @@ const App: React.FC = () => {
         scale={viewport.scale}
         mode={interactionMode}
         isSidebarOpen={isSidebarOpen}
+        isCalendarOpen={isCalendarOpen}
         onSetMode={setInteractionMode}
         onZoomIn={() => setViewport(v => ({ ...v, scale: Math.min(v.scale + 0.2, 3) }))}
         onZoomOut={() => setViewport(v => ({ ...v, scale: Math.max(v.scale - 0.2, 0.2) }))}
@@ -679,6 +719,7 @@ const App: React.FC = () => {
             });
         }}
         onToggleSidebar={() => { handleGlobalInteraction(); setIsSidebarOpen(!isSidebarOpen); if(!isSidebarOpen) setSidebarView(SidebarView.INBOX); }}
+        onToggleCalendar={() => { handleGlobalInteraction(); setIsCalendarOpen(!isCalendarOpen); }}
         onOpenSearch={() => { handleGlobalInteraction(); setIsSearchOpen(true); }}
         onCreateNew={(e) => { 
              const center = screenToCanvas(window.innerWidth/2, window.innerHeight/2);
@@ -687,9 +728,41 @@ const App: React.FC = () => {
              setEditingTask(undefined);
              setIsDialogOpen(true);
         }}
+        sidebarButtonRef={sidebarBtnRef}
+        calendarButtonRef={calendarBtnRef}
       />
 
-      {isSidebarOpen && <Sidebar currentView={sidebarView} tasks={tasks} onChangeView={setSidebarView} onClose={() => setIsSidebarOpen(false)} onSelectTask={(id) => {/* reuse center logic */}} onEditTask={(t, e) => { setEditingTask(t); setIsDialogOpen(true); }} onUpdateTask={handleSaveTaskFull} selectedTag={selectedTag} onSelectTag={setSelectedTag} />}
+      {isSidebarOpen && (
+          <Sidebar 
+            currentView={sidebarView} 
+            tasks={tasks} 
+            onChangeView={setSidebarView} 
+            onClose={() => setIsSidebarOpen(false)} 
+            onSelectTask={(id) => { 
+                const t = tasks.find(x => x.id === id); 
+                if(t) {
+                    const w = window.innerWidth; const h = window.innerHeight;
+                    setViewport({ x: -t.x * viewport.scale + w/2 - 150*viewport.scale, y: -t.y * viewport.scale + h/2 - 75*viewport.scale, scale: viewport.scale });
+                    setSelectedTaskIds(new Set([id]));
+                    setIsSidebarOpen(false);
+                }
+            }} 
+            onEditTask={(t, e) => { setEditingTask(t); setIsDialogOpen(true); }} 
+            onUpdateTask={handleSaveTaskFull} 
+            selectedTag={selectedTag} 
+            onSelectTag={setSelectedTag}
+            origin={getElementOrigin(sidebarBtnRef)}
+          />
+      )}
+
+      {isCalendarOpen && (
+          <CalendarView 
+            isOpen={isCalendarOpen} 
+            onClose={() => setIsCalendarOpen(false)} 
+            tasks={tasks}
+            origin={getElementOrigin(calendarBtnRef)}
+          />
+      )}
       
       <NotificationCenter isOpen={isNotificationCenterOpen} onClose={() => setIsNotificationCenterOpen(false)} notifications={notifications} onMarkAsRead={(id) => { storage.saveNotification(notifications.find(n => n.id === id)!); setNotifications(p => p.map(n => n.id === id ? {...n, isRead:true} : n)); }} onMarkAllAsRead={() => { notifications.forEach(n => storage.saveNotification({...n, isRead:true})); setNotifications(p => p.map(n => ({...n, isRead:true}))); }} onClearAll={() => { storage.clearNotifications(); setNotifications([]); }} onDismiss={(id) => { storage.deleteNotification(id); setNotifications(p => p.filter(n => n.id !== id)); }} onSelectTask={(id) => { /* center */ }} />
       
@@ -810,8 +883,8 @@ const App: React.FC = () => {
                 style={{
                     left: item.x, top: item.y, width: item.w, height: 80,
                     animationDuration: '0.8s',
-                    ['--target-x' as any]: `${(window.innerWidth / 2) - item.x - (item.w / 2)}px`,
-                    ['--target-y' as any]: `${(window.innerHeight - 40) - item.y}px`,
+                    ['--target-x' as any]: `${(item as any).targetX ? ((item as any).targetX - item.x - (item.w / 2)) : ((window.innerWidth / 2) - item.x - (item.w / 2))}px`,
+                    ['--target-y' as any]: `${(item as any).targetY ? ((item as any).targetY - item.y) : ((window.innerHeight - 40) - item.y)}px`,
                 }}
               >
                  <div className="w-5 h-5 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center">

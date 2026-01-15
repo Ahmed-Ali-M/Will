@@ -177,9 +177,10 @@ interface SidebarProps {
   onUpdateTask: (task: Partial<Task>) => void;
   selectedTag?: string | null;
   onSelectTag?: (tag: string) => void;
+  origin?: { x: number, y: number } | null;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, tasks, onSelectTask, onClose, onChangeView, onEditTask, onUpdateTask, selectedTag, onSelectTag }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, tasks, onSelectTask, onClose, onChangeView, onEditTask, onUpdateTask, selectedTag, onSelectTag, origin }) => {
   const [isTagMenuOpen, setIsTagMenuOpen] = useState(false);
   const tagMenuRef = useRef<HTMLDivElement>(null);
   const [localSearch, setLocalSearch] = useState('');
@@ -339,21 +340,23 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, tasks, onSelectTask, onC
         className="fixed inset-0 z-50 flex items-center justify-center pointer-events-auto"
     >
       <style>{`
-        @keyframes waveReveal {
-            0% { clip-path: circle(0% at 50% 90%); background-color: transparent; }
-            100% { clip-path: circle(150% at 50% 90%); background-color: rgba(15, 23, 42, 0.2); }
+        @keyframes dockExpand {
+            0% { clip-path: circle(0% at var(--origin-x) var(--origin-y)); transform: scale(0.95); opacity: 0; }
+            100% { clip-path: circle(150% at var(--origin-x) var(--origin-y)); transform: scale(1); opacity: 1; }
         }
       `}</style>
 
       <div 
         className="absolute inset-0 flex items-center justify-center backdrop-blur-sm"
         style={{
-            animation: 'waveReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            ['--origin-x' as any]: origin ? `${origin.x}px` : '50%',
+            ['--origin-y' as any]: origin ? `${origin.y}px` : '100%',
+            animation: 'dockExpand 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         }}
       >
         <div className="absolute inset-0 bg-slate-900/10 dark:bg-black/40" onClick={onClose} />
 
-        <div className="relative w-[85vw] h-[80vh] max-w-6xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl shadow-2xl rounded-[2.5rem] border border-white/60 dark:border-slate-700/60 overflow-hidden flex flex-col md:flex-row ring-1 ring-white/50 dark:ring-white/10 animate-[scaleIn_0.4s_ease-out_0.1s_both]">
+        <div className="relative w-[85vw] h-[80vh] max-w-6xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl shadow-2xl rounded-[2.5rem] border border-white/60 dark:border-slate-700/60 overflow-hidden flex flex-col md:flex-row ring-1 ring-white/50 dark:ring-white/10">
             
             <div className="w-full md:w-72 bg-slate-50/60 dark:bg-slate-800/60 flex flex-col gap-2 border-r border-slate-100/50 dark:border-slate-700/50 relative overflow-hidden">
                 <div className="p-6 pb-2">

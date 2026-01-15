@@ -5,26 +5,34 @@ interface CanvasDockProps {
     scale: number;
     mode: 'pointer' | 'hand';
     isSidebarOpen: boolean;
+    isCalendarOpen: boolean;
     onSetMode: (mode: 'pointer' | 'hand') => void;
     onZoomIn: () => void;
     onZoomOut: () => void;
     onFitContent: () => void;
     onToggleSidebar: () => void;
+    onToggleCalendar: () => void;
     onOpenSearch: () => void;
     onCreateNew: (e: React.MouseEvent) => void;
+    sidebarButtonRef?: React.RefObject<HTMLButtonElement>;
+    calendarButtonRef?: React.RefObject<HTMLButtonElement>;
 }
 
 const CanvasDock: React.FC<CanvasDockProps> = ({ 
     scale, 
     mode, 
     isSidebarOpen,
+    isCalendarOpen,
     onSetMode, 
     onZoomIn, 
     onZoomOut, 
     onFitContent,
     onToggleSidebar,
+    onToggleCalendar,
     onOpenSearch,
-    onCreateNew
+    onCreateNew,
+    sidebarButtonRef,
+    calendarButtonRef
 }) => {
     
     const ButtonBase = ({ 
@@ -32,15 +40,18 @@ const CanvasDock: React.FC<CanvasDockProps> = ({
         onClick, 
         children, 
         title,
-        highlight = false 
+        highlight = false,
+        buttonRef
     }: { 
         active?: boolean, 
         onClick: (e: React.MouseEvent) => void, 
         children: React.ReactNode, 
         title: string,
-        highlight?: boolean
+        highlight?: boolean,
+        buttonRef?: React.RefObject<HTMLButtonElement>
     }) => (
         <button
+            ref={buttonRef}
             onClick={onClick}
             title={title}
             className={`
@@ -63,6 +74,8 @@ const CanvasDock: React.FC<CanvasDockProps> = ({
     const Separator = () => (
         <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-2" />
     );
+
+    const currentDay = new Date().getDate();
 
     return (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-[slideUp_0.5s_cubic-bezier(0.16,1,0.3,1)]">
@@ -102,8 +115,25 @@ const CanvasDock: React.FC<CanvasDockProps> = ({
                         active={isSidebarOpen} 
                         onClick={onToggleSidebar} 
                         title="Toggle Sidebar"
+                        buttonRef={sidebarButtonRef}
                     >
                         <PanelLeft size={18} strokeWidth={2.5} />
+                    </ButtonBase>
+
+                    <ButtonBase
+                        active={isCalendarOpen}
+                        onClick={onToggleCalendar}
+                        title="Calendar"
+                        buttonRef={calendarButtonRef}
+                    >
+                        {/* Calendar Icon Leaf */}
+                        <div className="relative flex items-center justify-center">
+                            <div className="w-5 h-5 border-2 border-current rounded-[5px] flex items-center justify-center relative">
+                                <div className="absolute -top-[3px] -left-[1px] w-[2px] h-[3px] bg-current rounded-full" />
+                                <div className="absolute -top-[3px] -right-[1px] w-[2px] h-[3px] bg-current rounded-full" />
+                                <span className="text-[9px] font-bold mt-0.5">{currentDay}</span>
+                            </div>
+                        </div>
                     </ButtonBase>
                 </div>
 
