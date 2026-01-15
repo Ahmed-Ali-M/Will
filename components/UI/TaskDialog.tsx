@@ -402,6 +402,10 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ isOpen, onClose, onSave, initia
                             }
                           } catch (e) { /* ignore invalid dates */ }
 
+                          // Check if using standard reminder options
+                          const standardReminders = [0, 15, 30, 60, 1440];
+                          const isCustomReminder = !standardReminders.includes(d.reminderMinutes);
+
                           return (
                               <div key={d.id} className="flex flex-wrap items-center gap-2 bg-slate-50 dark:bg-slate-700/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
                                    <div 
@@ -438,13 +442,39 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ isOpen, onClose, onSave, initia
 
                                    <div className="flex items-center gap-1.5 ml-1">
                                        <Bell size={14} className="text-orange-500" />
-                                       <select value={d.reminderMinutes} onChange={(e) => handleDateChange(d.id, 'reminder', e.target.value)} className="bg-transparent text-xs outline-none text-slate-500 dark:text-slate-400 cursor-pointer font-medium hover:text-slate-700 dark:hover:text-slate-200">
-                                           <option value={0} className="dark:bg-slate-800">At time</option>
-                                           <option value={15} className="dark:bg-slate-800">15m before</option>
-                                           <option value={30} className="dark:bg-slate-800">30m before</option>
-                                           <option value={60} className="dark:bg-slate-800">1h before</option>
-                                           <option value={1440} className="dark:bg-slate-800">1 day before</option>
-                                       </select>
+                                       {!isCustomReminder ? (
+                                            <select 
+                                                value={d.reminderMinutes} 
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    if (val === 'custom') {
+                                                        handleDateChange(d.id, 'reminder', 10); // Default to 10m for custom start
+                                                    } else {
+                                                        handleDateChange(d.id, 'reminder', val);
+                                                    }
+                                                }} 
+                                                className="bg-transparent text-xs outline-none text-slate-500 dark:text-slate-400 cursor-pointer font-medium hover:text-slate-700 dark:hover:text-slate-200"
+                                            >
+                                                <option value={0} className="dark:bg-slate-800">At time</option>
+                                                <option value={15} className="dark:bg-slate-800">15m before</option>
+                                                <option value={30} className="dark:bg-slate-800">30m before</option>
+                                                <option value={60} className="dark:bg-slate-800">1h before</option>
+                                                <option value={1440} className="dark:bg-slate-800">1 day before</option>
+                                                <option value="custom" className="dark:bg-slate-800 font-semibold text-blue-500">Custom...</option>
+                                            </select>
+                                       ) : (
+                                           <div className="flex items-center gap-1">
+                                               <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    value={d.reminderMinutes}
+                                                    onChange={(e) => handleDateChange(d.id, 'reminder', parseInt(e.target.value) || 0)}
+                                                    className="w-10 bg-white dark:bg-slate-600 border border-slate-200 dark:border-slate-500 rounded px-1 py-0.5 text-xs text-center outline-none focus:border-blue-400 dark:text-slate-200"
+                                               />
+                                               <span className="text-xs text-slate-500">min</span>
+                                               <button onClick={() => handleDateChange(d.id, 'reminder', 15)} className="text-xs text-slate-400 hover:text-red-500 ml-1"><X size={10}/></button>
+                                           </div>
+                                       )}
                                    </div>
 
                                    {dates.length > 1 && (

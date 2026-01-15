@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Trash2, Copy, Edit2, Unlink, Layers, ArrowUpRight, Palette } from 'lucide-react';
+import { Trash2, Copy, Edit2, Unlink, Layers, ArrowUpRight, Palette, Layout } from 'lucide-react';
 
 export type ContextMenuType = 'TASK' | 'GROUP' | 'CANVAS' | 'CONNECTION';
 
@@ -84,6 +84,9 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, type, targetId, onClose
                 <>
                     <button onClick={() => onAction('new_task')} className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2">
                         <ArrowUpRight size={14} className="text-slate-400" /> New Task
+                    </button>
+                    <button onClick={() => onAction('new_group')} className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2">
+                        <Layout size={14} className="text-slate-400" /> New Group
                     </button>
                     <button onClick={() => onAction('layout')} className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2">
                         <Layers size={14} className="text-slate-400" /> Tidy Up

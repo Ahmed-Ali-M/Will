@@ -64,6 +64,18 @@ export const useCanvasInteraction = ({
     
     const [guides, setGuides] = useState<GuideLine[]>([]);
     
+    // Performance refs to break dependency cycles during drag
+    const tasksRef = useRef(tasks);
+    const groupsRef = useRef(groups);
+    const interactionRef = useRef(interaction);
+    const viewportRef = useRef(viewport);
+
+    // Update refs on render
+    useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+    useEffect(() => { groupsRef.current = groups; }, [groups]);
+    useEffect(() => { interactionRef.current = interaction; }, [interaction]);
+    useEffect(() => { viewportRef.current = viewport; }, [viewport]);
+
     // Performance refs
     const rAF = useRef<number | null>(null);
     const lastEventRef = useRef<{ clientX: number, clientY: number } | null>(null);
@@ -84,9 +96,11 @@ export const useCanvasInteraction = ({
     const isInteractionActive = interaction.type !== 'idle';
     
     const screenToCanvas = useCallback((sx: number, sy: number) => {
+        // Use ref if available for latest viewport during callbacks, else prop
+        const v = viewportRef.current || viewport;
         return {
-            x: (sx - viewport.x) / viewport.scale,
-            y: (sy - viewport.y) / viewport.scale
+            x: (sx - v.x) / v.scale,
+            y: (sy - v.y) / v.scale
         };
     }, [viewport]);
 
@@ -97,8 +111,8 @@ export const useCanvasInteraction = ({
         let newY = proposedY;
         const newGuides: GuideLine[] = [];
 
-        // Check against other tasks
-        tasks.forEach(other => {
+        // Check against other tasks (read from ref to avoid re-render loop)
+        tasksRef.current.forEach(other => {
             if (other.id === id) return;
             const otherW = other.width || 300;
             const otherH = other.height || 100;
@@ -154,9 +168,6 @@ export const useCanvasInteraction = ({
         e.stopPropagation();
         if (e.button !== 0) return;
 
-        // If Hand Mode is active, clicking a node should probably just pan (or do nothing), 
-        // but typically users expect to be able to select even in hand mode? 
-        // Convention: Hand mode implies "Safe Panning", so we shouldn't drag nodes.
         if (interactionMode === 'hand') return;
 
         // Shift select logic
@@ -193,10 +204,8 @@ export const useCanvasInteraction = ({
         const targetIds = type === 'task' ? currentSelectedTaskIds : currentSelectedGroupIds;
         
         if(type === 'task') {
-             // For tasks, targetIds contains task IDs
              tasks.filter(t => targetIds.includes(t.id)).forEach(t => initialPos.set(t.id, { x: t.x, y: t.y }));
         } else {
-             // For groups, targetIds contains group IDs
              groups.filter(g => targetIds.includes(g.id)).forEach(g => {
                  initialPos.set(g.id, { x: g.x, y: g.y });
                  
@@ -264,43 +273,40 @@ export const useCanvasInteraction = ({
     }, [groups, pushHistory, interactionMode]);
 
     const processMouseMove = useCallback((e: { clientX: number, clientY: number }) => {
-        if (interaction.type === 'idle') return;
+        // Read current interaction from ref to avoid closure staleness without re-binding
+        const currentInteraction = interactionRef.current;
+        if (currentInteraction.type === 'idle') return;
 
-        const deltaX = e.clientX - interaction.startX;
-        const deltaY = e.clientY - interaction.startY;
+        const deltaX = e.clientX - currentInteraction.startX;
+        const deltaY = e.clientY - currentInteraction.startY;
         
-        // Panning Logic (Requires state update for next frame delta)
-        if (interaction.type === 'panning') {
+        if (currentInteraction.type === 'panning') {
             setViewport(prev => ({
                 ...prev,
-                x: prev.x + (e.clientX - interaction.currentX),
-                y: prev.y + (e.clientY - interaction.currentY)
+                x: prev.x + (e.clientX - currentInteraction.currentX),
+                y: prev.y + (e.clientY - currentInteraction.currentY)
             }));
             setInteraction(prev => ({ ...prev, currentX: e.clientX, currentY: e.clientY }));
             return;
         }
 
-        // Selection & Connection (Require visual feedback state update)
-        if (interaction.type === 'selecting' || interaction.type === 'connecting') {
+        if (currentInteraction.type === 'selecting' || currentInteraction.type === 'connecting') {
              setInteraction(prev => ({ ...prev, currentX: e.clientX, currentY: e.clientY }));
         }
 
-        // IMPORTANT: For dragging nodes/groups, we DO NOT call setInteraction.
-        // We only call onTasksUpdate/onGroupsUpdate. This prevents double rendering.
-        
-        if (interaction.type === 'dragging_node' && interaction.initialPositions) {
-            const updates = [];
-            const primaryId = interaction.targetIds?.[0];
+        if (currentInteraction.type === 'dragging_node' && currentInteraction.initialPositions) {
+            const updates: any[] = [];
+            const primaryId = currentInteraction.targetIds?.[0];
 
-            for (const [id, startPos] of interaction.initialPositions.entries()) {
+            for (const [id, startPos] of currentInteraction.initialPositions.entries()) {
                 let px = startPos.x + (deltaX / scale);
                 let py = startPos.y + (deltaY / scale);
                 
-                if (interaction.initialPositions.size === 1 && id === primaryId) {
+                if (currentInteraction.initialPositions.size === 1 && id === primaryId) {
                     const snapped = calculateSnap(id, px, py, 300, 100); 
                     px = snapped.x;
                     py = snapped.y;
-                } else if (interaction.initialPositions.size > 1) {
+                } else if (currentInteraction.initialPositions.size > 1) {
                     setGuides([]); 
                 }
 
@@ -309,47 +315,41 @@ export const useCanvasInteraction = ({
             onTasksUpdate(updates);
         }
 
-        if (interaction.type === 'dragging_group' && interaction.initialPositions) {
-            const groupUpdates = [];
+        if (currentInteraction.type === 'dragging_group' && currentInteraction.initialPositions) {
+            const groupUpdates: any[] = [];
             setGuides([]);
             
-            // Move Group
-            for (const [id, startPos] of interaction.initialPositions.entries()) {
+            for (const [id, startPos] of currentInteraction.initialPositions.entries()) {
                 groupUpdates.push({ id, x: startPos.x + (deltaX / scale), y: startPos.y + (deltaY / scale) });
             }
             onGroupsUpdate(groupUpdates);
 
-            // Move Children
-            if (interaction.initialChildrenPositions && interaction.initialChildrenPositions.size > 0) {
-                const childUpdates = [];
-                for (const [childId, startPos] of interaction.initialChildrenPositions.entries()) {
+            if (currentInteraction.initialChildrenPositions && currentInteraction.initialChildrenPositions.size > 0) {
+                const childUpdates: any[] = [];
+                for (const [childId, startPos] of currentInteraction.initialChildrenPositions.entries()) {
                     childUpdates.push({ id: childId, x: startPos.x + (deltaX / scale), y: startPos.y + (deltaY / scale) });
                 }
                 onTasksUpdate(childUpdates);
             }
         }
 
-        if (interaction.type === 'resizing_group' && interaction.initialPositions && interaction.targetIds) {
-            const id = interaction.targetIds[0];
-            const startDims = interaction.initialPositions.get(id);
+        if (currentInteraction.type === 'resizing_group' && currentInteraction.initialPositions && currentInteraction.targetIds) {
+            const id = currentInteraction.targetIds[0];
+            const startDims = currentInteraction.initialPositions.get(id);
             if(startDims) {
                 const newW = Math.max(200, startDims.x + (deltaX / scale));
                 const newH = Math.max(100, startDims.y + (deltaY / scale));
                 onGroupResize(id, newW, newH);
             }
         }
-    }, [interaction, scale, setViewport, onTasksUpdate, onGroupsUpdate, onGroupResize, tasks]); // Tasks dependency is needed for snap calculation, but careful with re-renders
+    }, [scale, onTasksUpdate, onGroupsUpdate, onGroupResize]); // removed 'tasks' and 'interaction' from deps
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        // Extract properties immediately to avoid event pooling issues or stale references
         const { clientX, clientY } = e;
         lastEventRef.current = { clientX, clientY };
-        
         if (!rAF.current) {
             rAF.current = requestAnimationFrame(() => {
-                if (lastEventRef.current) {
-                    processMouseMove(lastEventRef.current);
-                }
+                if (lastEventRef.current) processMouseMove(lastEventRef.current);
                 rAF.current = null;
             });
         }
@@ -361,8 +361,11 @@ export const useCanvasInteraction = ({
             rAF.current = null;
         }
         
-        if (interaction.type === 'selecting') {
-            const start = screenToCanvas(interaction.startX, interaction.startY);
+        const currentInteraction = interactionRef.current;
+
+        if (currentInteraction.type === 'selecting') {
+            const viewport = viewportRef.current;
+            const start = screenToCanvas(currentInteraction.startX, currentInteraction.startY);
             const end = screenToCanvas(e.clientX, e.clientY);
             const x = Math.min(start.x, end.x);
             const y = Math.min(start.y, end.y);
@@ -371,7 +374,7 @@ export const useCanvasInteraction = ({
 
             const intersectedIds = new Set<string>();
             if (w > 5 || h > 5) {
-                tasks.forEach(t => {
+                tasksRef.current.forEach(t => {
                     const tW = t.width || 300;
                     const tH = t.height || 150;
                     if (t.x < x + w && t.x + tW > x && t.y < y + h && t.y + tH > y) intersectedIds.add(t.id);
@@ -392,34 +395,37 @@ export const useCanvasInteraction = ({
 
         setGuides([]); 
         setInteraction({ type: 'idle', startX: 0, startY: 0, currentX: 0, currentY: 0 });
-    }, [interaction, screenToCanvas, tasks, selectedTaskIds, setSelectedTaskIds]);
+    }, [screenToCanvas, selectedTaskIds, setSelectedTaskIds]);
 
-    // --- Touch Adaptors ---
+    // Attach Window Listeners when interaction is active
+    useEffect(() => {
+        if (interaction.type === 'idle') return;
 
-    const handleTouchStart = useCallback((e: React.TouchEvent) => {
-        if (e.touches.length === 1) {
-            // Simulate middle click/space+click for pan
-            const touch = e.touches[0];
-            setInteraction({
-                type: 'panning',
-                startX: touch.clientX, startY: touch.clientY,
-                currentX: touch.clientX, currentY: touch.clientY
-            });
-        }
-    }, []);
+        const handleWindowMouseMove = (e: MouseEvent) => {
+            const { clientX, clientY } = e;
+            lastEventRef.current = { clientX, clientY };
+            if (!rAF.current) {
+                rAF.current = requestAnimationFrame(() => {
+                    if (lastEventRef.current) processMouseMove(lastEventRef.current);
+                    rAF.current = null;
+                });
+            }
+        };
 
-    const handleTouchMove = useCallback((e: React.TouchEvent) => {
-        if (e.touches.length === 1) {
-            const touch = e.touches[0];
-            const fakeEvent = { clientX: touch.clientX, clientY: touch.clientY } as any;
-            handleMouseMove(fakeEvent);
-        }
-    }, [handleMouseMove]);
+        const handleWindowMouseUp = (e: MouseEvent) => {
+            // Bridge to the React callback logic
+            handleMouseUp(e as any);
+        };
 
-    const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-        const fakeEvent = { clientX: 0, clientY: 0 } as any; 
-        handleMouseUp(fakeEvent);
-    }, [handleMouseUp]);
+        window.addEventListener('mousemove', handleWindowMouseMove);
+        window.addEventListener('mouseup', handleWindowMouseUp);
+
+        return () => {
+            window.removeEventListener('mousemove', handleWindowMouseMove);
+            window.removeEventListener('mouseup', handleWindowMouseUp);
+            if (rAF.current) cancelAnimationFrame(rAF.current);
+        };
+    }, [interaction.type, processMouseMove, handleMouseUp]);
 
 
     return {
@@ -434,9 +440,8 @@ export const useCanvasInteraction = ({
         handleConnectionEnd,
         isInteractionActive,
         screenToCanvas,
-        // Expose touch handlers
-        handleTouchStart,
-        handleTouchMove,
-        handleTouchEnd
+        handleTouchStart: (e: React.TouchEvent) => {}, 
+        handleTouchMove: (e: React.TouchEvent) => {}, 
+        handleTouchEnd: (e: React.TouchEvent) => {}
     };
 };
