@@ -457,6 +457,25 @@ const App: React.FC = () => {
       setQuickCapture(null);
   };
 
+  // --- Calendar Handlers ---
+  const handleCalendarAddTask = useCallback((date: Date) => {
+      const center = screenToCanvas(window.innerWidth/2, window.innerHeight/2);
+      
+      // Use the provided date directly. The CalendarView is responsible for setting specific times
+      // (like 9 AM for Month view, or specific hour for Day view).
+      const isoDate = date.toISOString();
+
+      setDialogPosition(center);
+      setDialogOrigin(null); // Center of screen
+      setEditingTask({
+          id: generateId(),
+          title: '',
+          dueDate: isoDate,
+          dates: [{ id: generateId(), date: isoDate, reminderMinutes: 15 }]
+      });
+      setIsDialogOpen(true);
+  }, [screenToCanvas]);
+
   // --- Undo/Redo/Delete Shortcuts ---
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -761,6 +780,8 @@ const App: React.FC = () => {
             onClose={() => setIsCalendarOpen(false)} 
             tasks={tasks}
             origin={getElementOrigin(calendarBtnRef)}
+            onAddTask={handleCalendarAddTask}
+            onEditTask={(t) => { setEditingTask(t); setIsDialogOpen(true); }}
           />
       )}
       
